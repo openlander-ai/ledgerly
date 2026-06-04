@@ -51,3 +51,5 @@ crash-loops the container the way real apps do).
 
 Boot order: config → Postgres → Redis → external-API preflight → listen. The first
 failing layer names itself and exits, so a single bad var/dep crash-loops the container.
+
+# d3 same-branch update marker 17081f4
