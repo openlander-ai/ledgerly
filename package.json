@@ -1,0 +1,12 @@
+{
+  "name": "ledgerly",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small invoice/ledger API (Postgres + Redis) with a realistic multi-var config contract",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.1"
+  }
+}
