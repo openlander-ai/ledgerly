@@ -53,3 +53,5 @@ Boot order: config → Postgres → Redis → external-API preflight → listen.
 failing layer names itself and exits, so a single bad var/dep crash-loops the container.
 
 # d3 same-branch update marker 17081f4
+
+# d3-sonnet marker 1780587570
