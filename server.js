@@ -1,12 +1,13 @@
 'use strict';
-// ledgerly — a small invoice/ledger API. Realistic config surface:
-// Postgres + Redis + ~18 env vars (required / format-validated / optional).
+// ledgerly — a small invoice/ledger API for managed-dependency QA.
+// This branch intentionally scopes the config contract to Postgres + Redis so
+// deployment benchmarks measure platform-managed app/database/cache wiring,
+// not user-owned SaaS secret entry.
 // On any misconfig it prints ONE clear line naming the culprit, then exits 1.
 // This is deliberately strict so a single wrong/missing var crash-loops the
 // container the way real apps do.
 
 const http = require('http');
-const https = require('https');
 const { Client } = require('pg');
 const Redis = require('ioredis');
 
@@ -15,43 +16,7 @@ const Redis = require('ioredis');
 const SPEC = [
   { key: 'DATABASE_URL',     kind: 'required' },
   { key: 'REDIS_URL',        kind: 'required' },
-  { key: 'JWT_SECRET',       kind: 'minlen', min: 16 },
-  { key: 'SESSION_SECRET',   kind: 'minlen', min: 16 },
-  { key: 'APP_BASE_URL',     kind: 'url' },
-  { key: 'PORT',             kind: 'int', def: '3000' },
-  { key: 'LOG_LEVEL',        kind: 'enum', values: ['debug', 'info', 'warn', 'error'], def: 'info' },
-  { key: 'RATE_LIMIT_MAX',   kind: 'int', def: '100' },
-  { key: 'STRIPE_API_KEY',   kind: 'prefix', prefix: 'sk_' },
-  { key: 'SMTP_HOST',        kind: 'required' },
-  { key: 'SMTP_PORT',        kind: 'int' },
-  { key: 'SMTP_USER',        kind: 'required' },
-  { key: 'SMTP_PASS',        kind: 'required' },
-  { key: 'S3_BUCKET',        kind: 'required' },
-  { key: 'S3_REGION',        kind: 'required' },
-  { key: 'S3_ACCESS_KEY',    kind: 'required' },
-  { key: 'S3_SECRET_KEY',    kind: 'required' },
-  { key: 'EXCHANGE_API_URL', kind: 'url' },
-  { key: 'EXCHANGE_API_KEY', kind: 'prefix', prefix: 'key_' },
-  { key: 'CORS_ORIGINS',     kind: 'optional', def: '*' },
 ];
-
-// Outbound preflight: confirm the external dependency is *reachable* (any HTTP
-// response counts; we test connectivity, not auth). Fails on DNS/connect/timeout
-// — the common "egress blocked / wrong URL" production failure.
-function preflightExternal(url, key) {
-  return new Promise((resolve, reject) => {
-    let mod, u;
-    try { u = new URL(url); } catch (e) { return reject(new Error(`invalid URL: ${e.message}`)); }
-    mod = u.protocol === 'http:' ? http : https;
-    const req = mod.request(url, { method: 'GET', timeout: 5000, headers: { authorization: `Bearer ${key}` } }, (res) => {
-      res.resume();
-      resolve(res.statusCode);
-    });
-    req.on('timeout', () => req.destroy(new Error('timeout after 5000ms')));
-    req.on('error', reject);
-    req.end();
-  });
-}
 
 function validateConfig() {
   const cfg = {};
@@ -99,7 +64,8 @@ function validateConfig() {
 
 async function main() {
   const cfg = validateConfig();
-  console.log(`[boot] config OK (${SPEC.length} vars checked), log_level=${cfg.LOG_LEVEL}`);
+  const logLevel = process.env.LOG_LEVEL || 'info';
+  console.log(`[boot] managed-deps config OK (${SPEC.length} vars checked), log_level=${logLevel}`);
 
   // ---- Postgres ----
   const pg = new Client({ connectionString: cfg.DATABASE_URL, connectionTimeoutMillis: 5000 });
@@ -124,17 +90,7 @@ async function main() {
     process.exit(1);
   }
 
-  // ---- external API preflight ----
-  try {
-    const code = await preflightExternal(cfg.EXCHANGE_API_URL, cfg.EXCHANGE_API_KEY);
-    console.log(`[extapi] preflight OK (${cfg.EXCHANGE_API_URL} -> HTTP ${code})`);
-  } catch (err) {
-    const where = (() => { try { return new URL(cfg.EXCHANGE_API_URL).host; } catch { return cfg.EXCHANGE_API_URL; } })();
-    console.error(`[extapi] FATAL: cannot reach external API at ${where}: ${err.message}`);
-    process.exit(1);
-  }
-
-  const port = parseInt(cfg.PORT, 10);
+  const port = parseInt(process.env.PORT || '3000', 10);
   const server = http.createServer(async (req, res) => {
     try {
       if (req.url === '/health') {
