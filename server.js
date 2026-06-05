@@ -144,7 +144,7 @@ async function main() {
       }
       if (req.url === '/' ) {
         res.writeHead(200, { 'content-type': 'text/html' });
-        return res.end('<h1>ledgerly</h1><p>POST /api/invoices {"amount_cents":N,"memo":"..."} ; GET /api/invoices</p><p>build: D3-RC7-d3rc7-20260605105827-867c33</p>');
+        return res.end('<h1>ledgerly</h1><p>POST /api/invoices {"amount_cents":N,"memo":"..."} ; GET /api/invoices</p><p>build: HAIKU-D3-haiku-d3-124656-731e</p>');
       }
       if (req.url === '/api/invoices' && req.method === 'GET') {
         const hits = await redis.incr('invoices:list:hits');
