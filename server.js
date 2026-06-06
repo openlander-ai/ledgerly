@@ -143,8 +143,8 @@ async function main() {
         return res.end(JSON.stringify({ status: 'ok' }));
       }
       if (req.url === '/' ) {
-        res.writeHead(200, { 'content-type': 'text/html' });
-        return res.end('<h1>ledgerly</h1><p>POST /api/invoices {"amount_cents":N,"memo":"..."} ; GET /api/invoices</p><p>build: D3DOK-opus-rc-c3</p>');
+        res.writeHead(500, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'lying-health-rc19', note: 'root 500 but health ok' }));
       }
       if (req.url === '/api/invoices' && req.method === 'GET') {
         const hits = await redis.incr('invoices:list:hits');
