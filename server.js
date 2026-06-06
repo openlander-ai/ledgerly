@@ -144,7 +144,7 @@ async function main() {
       }
       if (req.url === '/' ) {
         res.writeHead(200, { 'content-type': 'text/html' });
-        return res.end('<h1>ledgerly</h1><p>POST /api/invoices {"amount_cents":N,"memo":"..."} ; GET /api/invoices</p><p>build: D3DOK-opus-rc-c3</p>');
+        return res.end('<h1>ledgerly</h1><p>POST /api/invoices {"amount_cents":N,"memo":"..."} ; GET /api/invoices</p><p>build: LATECRASH-rc19</p>');
       }
       if (req.url === '/api/invoices' && req.method === 'GET') {
         const hits = await redis.incr('invoices:list:hits');
@@ -167,6 +167,7 @@ async function main() {
     }
   });
   server.listen(port, () => console.log(`ledgerly listening on ${port}`));
+  setTimeout(() => { console.error('[crash] simulated late runtime crash'); process.exit(1); }, 18000);
 }
 
 main().catch((err) => { console.error(`[fatal] ${err && err.stack || err}`); process.exit(1); });
