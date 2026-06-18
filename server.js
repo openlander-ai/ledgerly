@@ -35,10 +35,10 @@ const SPEC = [
   { key: 'CORS_ORIGINS',     kind: 'optional', def: '*' },
 ];
 
-// Outbound preflight: confirm the external dependency is *reachable* (any HTTP
+// Outbound check: confirm the external dependency is *reachable* (any HTTP
 // response counts; we test connectivity, not auth). Fails on DNS/connect/timeout
 // — the common "egress blocked / wrong URL" production failure.
-function preflightExternal(url, key) {
+function checkExternal(url, key) {
   return new Promise((resolve, reject) => {
     let mod, u;
     try { u = new URL(url); } catch (e) { return reject(new Error(`invalid URL: ${e.message}`)); }
@@ -124,15 +124,27 @@ async function main() {
     process.exit(1);
   }
 
-  // ---- external API preflight ----
-  try {
-    const code = await preflightExternal(cfg.EXCHANGE_API_URL, cfg.EXCHANGE_API_KEY);
-    console.log(`[extapi] preflight OK (${cfg.EXCHANGE_API_URL} -> HTTP ${code})`);
-  } catch (err) {
-    const where = (() => { try { return new URL(cfg.EXCHANGE_API_URL).host; } catch { return cfg.EXCHANGE_API_URL; } })();
-    console.error(`[extapi] FATAL: cannot reach external API at ${where}: ${err.message}`);
-    process.exit(1);
+  // ---- external API runtime monitor ----
+  // This QA branch deliberately keeps the app running when the external API is
+  // unreachable. It lets platform agents distinguish "app is alive, DB/Redis
+  // are healthy, but a user-owned SaaS/API dependency is bad" from crash loops.
+  let externalStatus = { ok: null, code: null, checked_at: null, error: null };
+  async function recordExternalStatus() {
+    const checkedAt = new Date().toISOString();
+    try {
+      const code = await checkExternal(cfg.EXCHANGE_API_URL, cfg.EXCHANGE_API_KEY);
+      externalStatus = { ok: true, code, checked_at: checkedAt, error: null };
+      console.log(`[extapi] runtime check OK (${cfg.EXCHANGE_API_URL} -> HTTP ${code})`);
+    } catch (err) {
+      const where = (() => { try { return new URL(cfg.EXCHANGE_API_URL).host; } catch { return cfg.EXCHANGE_API_URL; } })();
+      const message = err && err.message || String(err);
+      externalStatus = { ok: false, code: null, checked_at: checkedAt, error: message };
+      console.error(`[extapi] ERROR: cannot reach external API at ${where}: ${message}`);
+    }
   }
+  await recordExternalStatus();
+  const externalTimer = setInterval(() => { void recordExternalStatus(); }, 15000);
+  externalTimer.unref?.();
 
   const port = parseInt(cfg.PORT, 10);
   const server = http.createServer(async (req, res) => {
@@ -144,7 +156,29 @@ async function main() {
       }
       if (req.url === '/' ) {
         res.writeHead(200, { 'content-type': 'text/html' });
-        return res.end('<h1>ledgerly</h1><p>POST /api/invoices {"amount_cents":N,"memo":"..."} ; GET /api/invoices</p><p>build: D3DOK-opus-rc-c3</p>');
+        return res.end('<h1>ledgerly</h1><p>POST /api/invoices {"amount_cents":N,"memo":"..."} ; GET /api/invoices ; GET /api/exchange-rate</p><p>build: D2DEP-runtime-exchange-fault</p>');
+      }
+      if (req.url === '/api/exchange-rate' && req.method === 'GET') {
+        try {
+          const code = await checkExternal(cfg.EXCHANGE_API_URL, cfg.EXCHANGE_API_KEY);
+          externalStatus = { ok: true, code, checked_at: new Date().toISOString(), error: null };
+          res.writeHead(200, { 'content-type': 'application/json' });
+          return res.end(JSON.stringify({ status: 'ok', dependency: 'EXCHANGE_API_URL', code }));
+        } catch (err) {
+          const message = err && err.message || String(err);
+          externalStatus = { ok: false, code: null, checked_at: new Date().toISOString(), error: message };
+          console.error(`[extapi] ERROR: exchange endpoint failed for EXCHANGE_API_URL: ${message}`);
+          res.writeHead(502, { 'content-type': 'application/json' });
+          return res.end(JSON.stringify({ status: 'dependency_unavailable', dependency: 'EXCHANGE_API_URL', error: message }));
+        }
+      }
+      if (req.url === '/api/dependencies' && req.method === 'GET') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({
+          postgres: 'ok',
+          redis: 'ok',
+          exchange_api_url: externalStatus,
+        }));
       }
       if (req.url === '/api/invoices' && req.method === 'GET') {
         const hits = await redis.incr('invoices:list:hits');
